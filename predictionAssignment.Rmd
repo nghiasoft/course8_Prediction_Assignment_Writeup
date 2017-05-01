@@ -1,0 +1,164 @@
+---
+title: "Prediction Assignment Writeup"
+author: "Nghia Dai Tran"
+date: "4/27/2017"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Background
+
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement ??? a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: http://groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset).
+
+## Data
+The training data for this project are available here:
+
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv
+
+The test data are available here:
+
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv
+
+The data for this project come from this source: http://groupware.les.inf.puc-rio.br/har. If you use the document you create for this class for any purpose please cite them as they have been very generous in allowing their data to be used for this kind of assignment.
+
+## What you should submit
+
+The goal of your project is to predict the manner in which they did the exercise. This is the "classe" variable in the training set. You may use any of the other variables to predict with. You should create a report describing how you built your model, how you used cross validation, what you think the expected out of sample error is, and why you made the choices you did. You will also use your prediction model to predict 20 different test cases.
+
+Your submission for the Peer Review portion should consist of a link to a Github repo with your R markdown and compiled HTML file describing your analysis. Please constrain the text of the writeup to < 2000 words and the number of figures to be less than 5. It will make it easier for the graders if you submit a repo with a gh-pages branch so the HTML page can be viewed online (and you always want to make it easy on graders.
+
+## Preliminary Work
+### Loadding data:
+```{r cache=TRUE}
+pml_training <- read.csv(file = "pml-training.csv")
+pml_testing <- read.csv(file = "pml-testing.csv")
+```
+
+### Reproduceability:
+-- The libraries are used for this project, they should be installed and loaded in your environment.  
+```{r results='hide', message=FALSE, warning=FALSE}
+library(rattle)
+library(caret)
+library(rpart)
+library(rpart.plot)
+library(corrplot)
+library(randomForest)
+library(RColorBrewer)
+```
+
+-- Set Seed to 4873 for all code. In order to reproduce the results below, the same seed should be used.
+```{r}
+set.seed(4873)
+```
+
+### Reproccess:
+```{r}
+# Clean the Near Zero Variance Variables.
+zeroVar <- nearZeroVar(pml_training, saveMetrics = TRUE)
+training01 <- pml_training[, !zeroVar$nzv]
+testing01 <- pml_testing[, !zeroVar$nzv]
+
+# Some variables are irrelevant to our current project: user_name, raw_timestamp_part_1,
+# raw_timestamp_part_,2 cvtd_timestamp. We can delete these variables.
+regex <- grepl("^X|user_name|timestamp", names(training01))
+training01 <- training01[, !regex]
+testing01 <- testing01[, !regex]
+
+# Delete columns with all missing values
+NNA <- (colSums(is.na(training01)) == 0)
+training01 <- training01[, NNA]
+testing01 <- testing01[, NNA]
+```
+### Data splitting:
+The first look to outcome variable classe:  
+```{r}
+unique(training01$classe)
+
+plot(training01$classe, main="Bar Plot of levels of the variable classe", xlab="Classe levels", ylab="Frequency")
+```
+  
+Classe is a factor of five different fashions:  
+-- Exactly according to the specification (Class A)  
+-- Throwing the elbows to the front (Class B)  
+-- Lifting the dumbbell only halfway (Class C)  
+-- Lowering the dumbbell only halfway (Class D)  
+-- Throwing the hips to the front (Class E)  
+
+Class A corresponds to the specified execution of the exercise, while the other 4 classes correspond to common mistakes.
+
+We split the training01 to training set (60%) and testing set (40%), the testing
+set will be used to conduct cross validation in future steps.
+
+```{r}
+# Hold-out Cross validation
+inTrain <- createDataPartition(training01$classe, p = 0.6, list = FALSE)
+training <- training01[inTrain, ]
+testing <- training01[-inTrain, ]
+```
+
+### Build model:
+We will use decision tree and random forest to test prediction models, which model has highest accuracy will be chosen as our final model.
+
+--Decision Tree
+```{r}
+# Fit a predictive model
+tree_model <- rpart(classe ~ ., data = training, method = "class")
+# Tree graph
+prp(tree_model)
+# Estimate the performance of the model on the testing data set.
+tree_prediction <- predict(tree_model, testing, type = "class")
+confusionMatrix(testing$classe, tree_prediction)
+```
+
+-- Random Forest
+```{r}
+# Fit a predictive model
+rf_model <- randomForest(classe ~. , data=training, method="class", na.action = na.omit)
+# Estimate the performance of the model on the testing data set.
+rf_prediction <- predict(rf_model, testing)
+confusionMatrix(testing$classe, rf_prediction)
+```
+### The expected out of sample error:
+##### Estimated Accuracy and Estimated Out-of-Sample Error of prediction model which uses Random Forest 
+```{r}
+rf_accuracy <- postResample(rf_prediction, testing$classe)
+```
+-- Accuracy for Random Forest model:
+```{r}
+rf_accuracy * 100
+```
+```{r}
+rf_ose <- 1 - as.numeric(confusionMatrix(testing$classe, rf_prediction)$overall[1])
+```
+-- The expected out-of-sample error for Random Forest model:
+```{r}
+rf_ose*100
+```
+##### Estimated Accuracy and Estimated Out-of-Sample Error of prediction model which uses Decision Tree  
+```{r}
+tr_accuracy <- postResample(tree_prediction, testing$classe)
+```
+-- Accuracy for Decision Tree model:
+```{r}
+tr_accuracy * 100
+```
+```{r}
+tr_ose <- 1 - as.numeric(confusionMatrix(testing$classe, tree_prediction)$overall[1])
+```
+-- The expected out-of-sample error for Decision Tree model:
+```{r}
+tr_ose*100
+```
+### Decision:
+Based on result Accuracy and expected out-of-sample error above, The random Forest model is choosen because it has highest accuracy and minimize out-of-sample error. The accuracy of the model is 99.38% The expected out-of-sample error is estimated at 0.61%.
+
+### Predict 20 different test cases using Random Forest algorithm on testing01 data set:
+```{r}
+predictfinal <- predict(rf_model, testing01, type="class")
+predictfinal
+```
